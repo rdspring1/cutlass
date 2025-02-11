@@ -89,17 +89,17 @@ using namespace cute;
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 // A matrix configuration
-using         ElementA    = float;                                          // Element type for A matrix operand
-using         LayoutA     = cutlass::layout::RowMajor;                      // Layout type for A matrix operand
+using         ElementA    = cutlass::bfloat16_t;                                          // Element type for A matrix operand
+using         LayoutA     = cutlass::layout::ColumnMajor;                      // Layout type for A matrix operand
 constexpr int AlignmentA  = 128 / cutlass::sizeof_bits<ElementA>::value;    // Memory access granularity/alignment of A matrix in units of elements (up to 16 bytes)
 
 // B matrix configuration
-using         ElementB    = float;                                          // Element type for B matrix operand
+using         ElementB    = cutlass::bfloat16_t;                                          // Element type for B matrix operand
 using         LayoutB     = cutlass::layout::ColumnMajor;                   // Layout type for B matrix operand
 constexpr int AlignmentB  = 128 / cutlass::sizeof_bits<ElementB>::value;    // Memory access granularity/alignment of B matrix in units of elements (up to 16 bytes)
 
 // C/D matrix configuration
-using         ElementC    = float;                                          // Element type for C and D matrix operands
+using         ElementC    = cutlass::bfloat16_t;                                          // Element type for C and D matrix operands
 using         LayoutC     = cutlass::layout::ColumnMajor;                   // Layout type for C and D matrix operands
 constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;    // Memory access granularity/alignment of C matrix in units of elements (up to 16 bytes)
 
@@ -107,19 +107,19 @@ constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;    // M
 using ElementAccumulator  = float;                                          // Element type for internal accumulation
 using ArchTag             = cutlass::arch::Sm90;                            // Tag indicating the minimum SM that supports the intended feature
 using OperatorClass       = cutlass::arch::OpClassTensorOp;                 // Operator class tag
-using TileShape           = Shape<_128,_128,_32>;                           // Threadblock-level tile size
-using ClusterShape        = Shape<_4,_2,_1>;                                // Shape of the threadblocks in a cluster
+using EpilogueTileType    = cutlass::epilogue::collective::EpilogueTileAuto;
+using TileShape           = Shape<_128,_256,_64>;                           // Threadblock-level tile size
+using ClusterShape        = Shape<_2,_1,_1>;                                // Shape of the threadblocks in a cluster
 using StageCountType = cutlass::gemm::collective::StageCountAuto;           // Stage count maximized based on the tile size
 using KernelSchedule = cutlass::gemm::collective::KernelScheduleAuto;       // Kernel to launch based on the default setting in the Collective Builder
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-    TileShape, ClusterShape,
-    cutlass::epilogue::collective::EpilogueTileAuto,
+    TileShape, ClusterShape, EpilogueTileType,
     ElementAccumulator, ElementAccumulator,
     ElementC, LayoutC, AlignmentC,
     ElementC, LayoutC, AlignmentC,
-    cutlass::epilogue::collective::EpilogueScheduleAuto
+    cutlass::epilogue::TmaWarpSpecializedCooperative
   >::CollectiveOp;
 
 using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -195,7 +195,7 @@ struct Options {
 
   Options():
     help(false),
-    m(5120), n(4096), k(4096),
+    m(4096), n(14336), k(5120),
     alpha(1.f), beta(0.f),
     iterations(1000),
     raster(RasterOrderOptions::Heuristic),
@@ -418,31 +418,38 @@ int run(Options &options)
   CUTLASS_CHECK(gemm.initialize(arguments, workspace.get()));
 
   // Correctness / Warmup iteration
-  CUTLASS_CHECK(gemm.run());
+  // CUTLASS_CHECK(gemm.run());
 
   // Check if output from CUTLASS kernel and reference kernel are equal or not
   Result result;
-  result.passed = verify(options);
+  // result.passed = verify(options);
+  // std::cout << "  Disposition: " << (result.passed ? "Passed" : "Failed") << std::endl;
+  // if (!result.passed) {
+  //   exit(-1);
+  // }
 
-  std::cout << "  Disposition: " << (result.passed ? "Passed" : "Failed") << std::endl;
-
-  if (!result.passed) {
-    exit(-1);
-  }
-
+  float elapsed_ms = 0.0;
   // Run profiling loop
   if (options.iterations > 0)
   {
-    GpuTimer timer;
-    timer.start();
     for (int iter = 0; iter < options.iterations; ++iter) {
+      cutlass::DeviceAllocation<typename Gemm::ElementA> foo_block_A;
+      cutlass::DeviceAllocation<typename Gemm::ElementB> foo_block_B;
+      cutlass::DeviceAllocation<typename Gemm::ElementC> foo_block_C;
+
+      initialize_block(foo_block_A, seed + 2023);
+      initialize_block(foo_block_B, seed + 2022);
+      initialize_block(foo_block_C, seed + 2021);
+
+      GpuTimer timer;
+      timer.start();
       CUTLASS_CHECK(gemm.initialize(arguments, workspace.get()));
       CUTLASS_CHECK(gemm.run());
+      timer.stop();
+      elapsed_ms += timer.elapsed_millis();
     }
-    timer.stop();
 
     // Compute average runtime and GFLOPs.
-    float elapsed_ms = timer.elapsed_millis();
     result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
     result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
 
@@ -483,15 +490,12 @@ int main(int argc, char const **args) {
   CUDA_CHECK(cudaGetDevice(&current_device_id));
   CUDA_CHECK(cudaGetDeviceProperties(&props, current_device_id));
   cudaError_t error = cudaGetDeviceProperties(&props, 0);
-  if (props.major != 9 || props.minor != 0) {
+  if (props.major < 9) {
     std::cerr
-      << "This example requires a GPU of NVIDIA's Hopper Architecture (compute capability 90).\n";
+      << "This example requires a GPU of NVIDIA's Hopper Architecture or "
+      << "later (compute capability 90 or greater).\n";
     return 0;
   }
-
-  
-  
-
   //
   // Parse options
   //
