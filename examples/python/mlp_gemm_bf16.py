@@ -2,6 +2,7 @@ import torch
 import random
 import numpy as np
 import cutlass
+from cutlass.utils.profiler import CUDAEventProfiler
 
 np.random.seed(1234)
 random.seed(1234)
@@ -41,7 +42,14 @@ plan = cutlass.Gemm(
     element_accumulator=np.float32,
 )
 plan.compile()
-plan.run(tensor_A, tensor_B.t(), tensor_C, tensor_D, print_module=print_module)
+
+warmup_iterations = 10
+profile_iterations = 50
+# Profile CUTLASS fused kernel
+duration = CUDAEventProfiler(
+    plan, warmup_iterations, profile_iterations,
+    tensor_A, tensor_B.t(), tensor_C, tensor_D)()
+print(f"CUTLASS duration: {duration:.2f} ms")
 
 tensor_D_pytorch = (alpha * (tensor_A @ tensor_B.t())) + (beta * tensor_C)
 print(torch.allclose(tensor_D, tensor_D_pytorch, 1e-6 * K, 1e-6 * K))
