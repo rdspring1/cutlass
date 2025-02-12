@@ -2,6 +2,10 @@ import torch
 import random
 import numpy as np
 import cutlass
+from cutlass.utils.profiler import CUDAEventProfiler
+from cutlass.backend.library import TileDescription, MathInstruction, OpcodeClass
+from cutlass import KernelScheduleType, EpilogueScheduleType, TileSchedulerType
+from cutlass import DataType
 
 np.random.seed(1234)
 random.seed(1234)
@@ -41,14 +45,29 @@ plan = cutlass.Gemm(
     element_accumulator=np.float32,
 )
 
-tiles = plan.tile_descriptions()
-print("{} tile descriptions returned".format(len(tiles)))
-idx = 0
-td = tiles[idx]
-print("Tile description {} is: {}".format(idx, td))
-plan.compile(td)
+cluster_shape = (2, 1, 1)
+threadblock_shape = (128, 256, 64)
+warp_count = [8, 1, 1]
+stages = 4
+math_instruction = MathInstruction((64, 256, 16), DataType.bf16, DataType.bf16, DataType.f32, OpcodeClass.TensorOp)
+kernel_schedule = KernelScheduleType.TmaWarpSpecializedCooperative
+epilogue_schedule = EpilogueScheduleType.TmaWarpSpecializedCooperative
+tile_scheduler = TileSchedulerType.Default
+td = TileDescription(threadblock_shape, stages, warp_count, math_instruction, cluster_shape, kernel_schedule, epilogue_schedule, tile_scheduler)
+print(td)
 
+plan.compile(td)
 plan.run(tensor_A.t(), tensor_B, tensor_C, tensor_D, print_module=print_module)
+
+'''
+warmup_iterations = 10
+profile_iterations = 50
+# Profile CUTLASS fused kernel
+duration = CUDAEventProfiler(
+    plan, warmup_iterations, profile_iterations,
+    tensor_A.t(), tensor_B, tensor_C, tensor_D)()
+print(f"CUTLASS duration: {duration:.2f} ms")
+'''
 
 tensor_D_pytorch = (alpha * (tensor_A.t() @ tensor_B)) + (beta * tensor_C)
 print(torch.allclose(tensor_D, tensor_D_pytorch, 1e-6 * K, 1e-6 * K))
