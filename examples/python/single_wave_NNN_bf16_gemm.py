@@ -34,6 +34,14 @@ tensor_D = torch.zeros_like(tensor_C, dtype=type_D, device='cuda')
 # We specify `element_accumulator` here so as to match the kernel run by NumPy below. However,
 # specifying `element_accumulator` is not required if it is the same as `element`
 plan = cutlass.Gemm(element=dtype, layout=cutlass.LayoutType.RowMajor, element_accumulator=np.float32)
+
+tiles = plan.tile_descriptions()
+print('{} tile descriptions returned'.format(len(tiles)))
+idx = 0
+td = tiles[idx]
+print('Tile description {} is: {}'.format(idx, td))
+plan.compile(td)
+
 plan.run(tensor_A, tensor_B, tensor_C, tensor_D, print_module=print_module)
 
 tensor_D_pytorch = (alpha * (tensor_A @ tensor_B)) + (beta * tensor_C)
