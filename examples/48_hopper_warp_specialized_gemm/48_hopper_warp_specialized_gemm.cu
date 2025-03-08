@@ -84,6 +84,8 @@ using namespace cute;
 
 #if defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
 
+// nsys nvprof ./48_hopper_warp_specialized_gemm --m=8192 --n=8192 --k=8192 --swizzle=8 --iterations=1
+
 /////////////////////////////////////////////////////////////////////////////////////////////////
 /// GEMM kernel configurations
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -105,13 +107,15 @@ constexpr int AlignmentC  = 128 / cutlass::sizeof_bits<ElementC>::value;    // M
 
 // Core kernel configurations
 using ElementAccumulator  = float;                                          // Element type for internal accumulation
+using ElementCompute      = float;                                          // Element type for epilogue computation
 using ArchTag             = cutlass::arch::Sm90;                            // Tag indicating the minimum SM that supports the intended feature
 using OperatorClass       = cutlass::arch::OpClassTensorOp;                 // Operator class tag
 using EpilogueTileType    = cutlass::epilogue::collective::EpilogueTileAuto;
 using TileShape           = Shape<_64,_256,_64>;                           // Threadblock-level tile size
 using ClusterShape        = Shape<_1,_2,_1>;                                // Shape of the threadblocks in a cluster
 using StageCountType = cutlass::gemm::collective::StageCountAuto;           // Stage count maximized based on the tile size
-using KernelSchedule = cutlass::gemm::collective::KernelScheduleAuto;       // Kernel to launch based on the default setting in the Collective Builder
+using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;       // Kernel to launch TMA warp specialization
+using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;             // Epilogue to use TMA warp specialization
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -119,7 +123,8 @@ using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBui
     ElementAccumulator, ElementAccumulator,
     ElementC, LayoutC, AlignmentC,
     ElementC, LayoutC, AlignmentC,
-    cutlass::epilogue::TmaWarpSpecialized
+    EpilogueSchedule,
+    cutlass::epilogue::fusion::LinCombEltAct<cutlass::epilogue::thread::SiLu, ElementC, ElementCompute>
   >::CollectiveOp;
 
 using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -130,7 +135,7 @@ using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder
     TileShape, ClusterShape,
     cutlass::gemm::collective::StageCountAutoCarveout<
       static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage))>,
-    cutlass::gemm::KernelTmaWarpSpecialized
+    KernelSchedule
   >::CollectiveOp;
 
 using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
