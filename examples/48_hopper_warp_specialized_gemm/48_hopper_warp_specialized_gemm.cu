@@ -117,6 +117,16 @@ using StageCountType = cutlass::gemm::collective::StageCountAuto;           // S
 using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;       // Kernel to launch TMA warp specialization
 using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;             // Epilogue to use TMA warp specialization
 
+// GELU
+// GELU_taylor
+// HardSwish
+// Identity
+// LeakyReLU
+// ReLu
+// Sigmoid
+// SiLu
+// Tanh
+
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
     TileShape, ClusterShape, EpilogueTileType,
