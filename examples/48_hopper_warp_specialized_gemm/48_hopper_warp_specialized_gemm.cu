@@ -111,11 +111,21 @@ using ElementCompute      = float;                                          // E
 using ArchTag             = cutlass::arch::Sm90;                            // Tag indicating the minimum SM that supports the intended feature
 using OperatorClass       = cutlass::arch::OpClassTensorOp;                 // Operator class tag
 using EpilogueTileType    = cutlass::epilogue::collective::EpilogueTileAuto;
-using TileShape           = Shape<_64,_256,_64>;                           // Threadblock-level tile size
+using TileShape           = Shape<_128,_256,_64>;                           // Threadblock-level tile size
 using ClusterShape        = Shape<_1,_2,_1>;                                // Shape of the threadblocks in a cluster
 using StageCountType = cutlass::gemm::collective::StageCountAuto;           // Stage count maximized based on the tile size
-using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecialized;       // Kernel to launch TMA warp specialization
-using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;             // Epilogue to use TMA warp specialization
+using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;       // Kernel to launch TMA warp specialization
+using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecializedCooperative;             // Epilogue to use TMA warp specialization
+
+// GELU
+// GELU_taylor
+// HardSwish
+// Identity
+// LeakyReLU
+// ReLu
+// Sigmoid
+// SiLu
+// Tanh
 
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
@@ -124,7 +134,7 @@ using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBui
     ElementC, LayoutC, AlignmentC,
     ElementC, LayoutC, AlignmentC,
     EpilogueSchedule,
-    cutlass::epilogue::fusion::LinCombEltAct<cutlass::epilogue::thread::SiLu, ElementC, ElementCompute>
+    cutlass::epilogue::fusion::LinCombEltAct<cutlass::epilogue::thread::Identity, ElementC, ElementCompute>
   >::CollectiveOp;
 
 using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
